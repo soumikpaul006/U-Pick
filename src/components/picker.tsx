@@ -66,6 +66,9 @@ const CUISINE_EMOJI: Record<Cuisine, string> = {
   Mediterranean: "🥙",
   "Middle Eastern": "🧆",
   French: "🥐",
+  Desserts: "🍰",
+  Bakery: "🥖",
+  Cafe: "☕",
 };
 
 const DIET_EMOJI: Record<Diet, string> = {

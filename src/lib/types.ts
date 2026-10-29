@@ -11,7 +11,17 @@ export const CUISINES = [
   "Mediterranean",
   "Middle Eastern",
   "French",
+  "Desserts",
+  "Bakery",
+  "Cafe",
 ] as const;
+
+/**
+ * Cuisine options that are venue kinds rather than cuisines. Google files these
+ * under their own place types (not "restaurant"), so searches including any of
+ * them must not be restricted to restaurants.
+ */
+export const VENUE_CATEGORIES: readonly string[] = ["Desserts", "Bakery", "Cafe"];
 
 export const DIETS = [
   "Vegan",

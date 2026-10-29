@@ -1,4 +1,4 @@
-import type { PickRequest, Restaurant } from "./types";
+import { VENUE_CATEGORIES, type PickRequest, type Restaurant } from "./types";
 
 const PLACES_URL = "https://places.googleapis.com/v1/places:searchText";
 const PHOTO_BASE_URL = "https://places.googleapis.com/v1";
@@ -96,12 +96,14 @@ export async function searchRestaurants(
   origin: { lat: number; lng: number },
 ): Promise<Restaurant[]> {
   const terms = [...req.diets, ...req.cuisines];
-  const textQuery = `${terms.join(" ")} restaurant`.trim();
+  // Bakeries, cafes and dessert shops aren't "restaurant" places in Google's
+  // taxonomy, so for those we search by text alone instead of restricting type.
+  const venueSearch = req.cuisines.some((c) => VENUE_CATEGORIES.includes(c));
+  const textQuery = (venueSearch ? terms.join(" ") : `${terms.join(" ")} restaurant`).trim();
 
   const body: Record<string, unknown> = {
     textQuery,
-    includedType: "restaurant",
-    strictTypeFiltering: true,
+    ...(venueSearch ? {} : { includedType: "restaurant", strictTypeFiltering: true }),
     pageSize: 20,
     openNow: req.openNow || undefined,
     locationBias: {
