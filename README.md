@@ -31,9 +31,10 @@ The key is only used server-side (in `/api/pick`). Never prefix it with `NEXT_PU
 
 ## How it works
 
-1. The browser sends your location (geolocation or a typed address) and filters to `POST /api/pick`.
-2. The server searches Google Places, re-filters by real distance, drops places you've already seen, and picks one at random, weighted toward higher ratings.
-3. "Pick again" excludes everything already shown.
+1. The browser sends your location (geolocation or a typed address) and filters (distance in miles) to `POST /api/pick`.
+2. The server searches Google Places, re-filters by real distance, and either picks one at random (weighted toward higher ratings) or returns the top 5 by rating.
+3. Each result shows its rating, photo and a Google Maps link. Photos are served through `/api/photo` so the key stays private.
+4. In single-pick mode, "Pick again" excludes everything already shown.
 
 Dietary matching is keyword-based (Places has no structured diet filter), so check the menu.
 

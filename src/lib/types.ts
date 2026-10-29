@@ -34,6 +34,8 @@ export type PickRequest = {
   price: Price | "any";
   radiusMeters: number;
   openNow: boolean;
+  /** 1 = a single random pick, 5 = the five best-ranked matches. */
+  count: 1 | 5;
   /** Place ids already shown, so "pick again" never repeats. */
   excludeIds: string[];
 };
@@ -51,8 +53,9 @@ export type Restaurant = {
   websiteUrl: string | null;
   lat: number;
   lng: number;
+  /** Google photo resource name; fetch it through /api/photo, never directly. */
+  photoName: string | null;
+  photoAttribution: string | null;
 };
 
-export type PickResponse =
-  | { restaurant: Restaurant; remaining: number }
-  | { restaurant: null; remaining: 0 };
+export type PickResponse = { restaurants: Restaurant[]; remaining: number };

@@ -1,6 +1,7 @@
 import type { PickRequest, Restaurant } from "./types";
 
 const PLACES_URL = "https://places.googleapis.com/v1/places:searchText";
+const PHOTO_BASE_URL = "https://places.googleapis.com/v1";
 const GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json";
 
 const FIELD_MASK = [
@@ -14,6 +15,7 @@ const FIELD_MASK = [
   "places.primaryTypeDisplayName",
   "places.googleMapsUri",
   "places.websiteUri",
+  "places.photos",
 ].join(",");
 
 const PRICE_LEVELS = {
@@ -41,6 +43,7 @@ type GooglePlace = {
   primaryTypeDisplayName?: { text?: string };
   googleMapsUri?: string;
   websiteUri?: string;
+  photos?: { name?: string; authorAttributions?: { displayName?: string }[] }[];
 };
 
 export class PlacesError extends Error {
@@ -144,6 +147,8 @@ export async function searchRestaurants(
         distanceMeters: Math.round(distanceMeters(origin, loc)),
         mapsUrl: p.googleMapsUri ?? "",
         websiteUrl: p.websiteUri ?? null,
+        photoName: p.photos?.[0]?.name ?? null,
+        photoAttribution: p.photos?.[0]?.authorAttributions?.[0]?.displayName ?? null,
         ...loc,
       };
     })
@@ -159,4 +164,25 @@ export function weightedRandom(items: Restaurant[]): Restaurant {
     if (roll <= 0) return items[i];
   }
   return items[items.length - 1];
+}
+
+/**
+ * Top `n` by Bayesian-average rating, so a 5.0 from 3 reviews doesn't outrank
+ * a 4.7 from 2,000. Unrated places sort last.
+ */
+export function topRated(items: Restaurant[], n: number): Restaurant[] {
+  const PRIOR_WEIGHT = 50;
+  const PRIOR_MEAN = 4.0;
+  const score = (r: Restaurant) => {
+    if (r.rating == null) return -1;
+    const v = r.ratingCount ?? 0;
+    return (v * r.rating + PRIOR_WEIGHT * PRIOR_MEAN) / (v + PRIOR_WEIGHT);
+  };
+  return [...items].sort((a, b) => score(b) - score(a)).slice(0, n);
+}
+
+/** Fetches a place photo server-side so the API key never reaches the browser. */
+export async function fetchPhoto(photoName: string, maxWidthPx: number) {
+  const url = `${PHOTO_BASE_URL}/${photoName}/media?maxWidthPx=${maxWidthPx}`;
+  return fetch(url, { headers: { "X-Goog-Api-Key": apiKey() } });
 }

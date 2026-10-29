@@ -3,8 +3,10 @@ import {
   PlacesError,
   geocode,
   searchRestaurants,
+  topRated,
   weightedRandom,
 } from "@/lib/places";
+import { clientIp, createRateLimiter } from "@/lib/rate-limit";
 import {
   CUISINES,
   DIETS,
@@ -13,24 +15,7 @@ import {
   type PickResponse,
 } from "@/lib/types";
 
-// Best-effort in-memory limiter. Per-instance only: swap for Upstash/KV once
-// deployed to a multi-instance host.
-const WINDOW_MS = 60_000;
-const MAX_REQUESTS = 20;
-const hits = new Map<string, number[]>();
-
-function rateLimited(ip: string) {
-  const now = Date.now();
-  const recent = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
-  recent.push(now);
-  hits.set(ip, recent);
-  if (hits.size > 5000) {
-    for (const [key, times] of hits) {
-      if (times.every((t) => now - t >= WINDOW_MS)) hits.delete(key);
-    }
-  }
-  return recent.length > MAX_REQUESTS;
-}
+const isLimited = createRateLimiter(20);
 
 const isNum = (v: unknown): v is number =>
   typeof v === "number" && Number.isFinite(v);
@@ -42,6 +27,7 @@ type RawBody = {
   price?: unknown;
   radiusMeters?: unknown;
   openNow?: unknown;
+  count?: unknown;
   excludeIds?: unknown;
 };
 
@@ -83,13 +69,13 @@ function parse(raw: unknown): PickRequest | string {
     price: price as PickRequest["price"],
     radiusMeters: Math.min(Math.max(radius, 200), 50000),
     openNow: body.openNow === true,
+    count: body.count === 5 ? 5 : 1,
     excludeIds,
   };
 }
 
 export async function POST(request: NextRequest) {
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
-  if (rateLimited(ip)) {
+  if (isLimited(clientIp(request))) {
     return Response.json({ error: "Too many requests, slow down." }, { status: 429 });
   }
 
@@ -108,12 +94,17 @@ export async function POST(request: NextRequest) {
     const exclude = new Set(parsed.excludeIds);
     const candidates = results.filter((r) => !exclude.has(r.id));
 
-    const payload: PickResponse = candidates.length
-      ? {
-          restaurant: weightedRandom(candidates),
-          remaining: candidates.length - 1,
-        }
-      : { restaurant: null, remaining: 0 };
+    const picked =
+      parsed.count === 5
+        ? topRated(candidates, 5)
+        : candidates.length
+          ? [weightedRandom(candidates)]
+          : [];
+
+    const payload: PickResponse = {
+      restaurants: picked,
+      remaining: candidates.length - picked.length,
+    };
     return Response.json(payload);
   } catch (err) {
     if (err instanceof PlacesError) {

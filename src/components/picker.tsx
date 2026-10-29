@@ -24,13 +24,17 @@ import {
   type Restaurant,
 } from "@/lib/types";
 
+const METERS_PER_MILE = 1609.344;
+
 const RADII = [
-  { value: "1000", label: "1 km" },
-  { value: "3000", label: "3 km" },
-  { value: "5000", label: "5 km" },
-  { value: "10000", label: "10 km" },
-  { value: "25000", label: "25 km" },
+  { value: "1", label: "1 mile" },
+  { value: "2", label: "2 miles" },
+  { value: "5", label: "5 miles" },
+  { value: "10", label: "10 miles" },
+  { value: "20", label: "20 miles" },
 ];
+
+type Mode = "one" | "top5";
 
 const PRICE_OPTIONS = [
   { value: "any", label: "Any price" },
@@ -48,7 +52,8 @@ const PRICE_SYMBOL: Record<string, string> = {
 };
 
 function formatDistance(m: number) {
-  return m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`;
+  const miles = m / METERS_PER_MILE;
+  return miles < 0.1 ? "<0.1 mi" : `${miles.toFixed(1)} mi`;
 }
 
 type Coords = { lat: number; lng: number };
@@ -57,7 +62,8 @@ export function Picker() {
   const [cuisines, setCuisines] = useState<Cuisine[]>([]);
   const [diets, setDiets] = useState<Diet[]>([]);
   const [price, setPrice] = useState<Price | "any">("any");
-  const [radius, setRadius] = useState("3000");
+  const [radius, setRadius] = useState("2");
+  const [mode, setMode] = useState<Mode>("one");
   const [openNow, setOpenNow] = useState(true);
   const [address, setAddress] = useState("");
   const [coords, setCoords] = useState<Coords | null>(null);
@@ -65,7 +71,7 @@ export function Picker() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<Restaurant | null>(null);
+  const [results, setResults] = useState<Restaurant[]>([]);
   const [empty, setEmpty] = useState(false);
   const [seen, setSeen] = useState<string[]>([]);
 
@@ -108,20 +114,21 @@ export function Picker() {
           cuisines,
           diets,
           price,
-          radiusMeters: Number(radius),
+          radiusMeters: Math.round(Number(radius) * METERS_PER_MILE),
           openNow,
+          count: mode === "top5" ? 5 : 1,
           excludeIds: exclude,
         }),
       });
       const data: PickResponse & { error?: string } = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Request failed");
-      if (!data.restaurant) {
-        setResult(null);
+      if (!data.restaurants.length) {
+        setResults([]);
         setEmpty(true);
         return;
       }
-      setResult(data.restaurant);
-      setSeen([...exclude, data.restaurant.id]);
+      setResults(data.restaurants);
+      setSeen([...exclude, ...data.restaurants.map((r) => r.id)]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -237,8 +244,26 @@ export function Picker() {
             Open now
           </label>
 
+          <div className="flex flex-col gap-2">
+            <Label>How many?</Label>
+            <ToggleGroup
+              variant="outline"
+              value={[mode]}
+              onValueChange={(v) => v[0] && setMode(v[0] as Mode)}
+            >
+              <ToggleGroupItem value="one">Surprise me (1)</ToggleGroupItem>
+              <ToggleGroupItem value="top5">Top 5</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+
           <Button size="lg" onClick={() => pick([])} disabled={loading}>
-            {loading && !result ? "Picking…" : "Pick a restaurant"}
+            {loading && !results.length
+              ? mode === "top5"
+                ? "Finding…"
+                : "Picking…"
+              : mode === "top5"
+                ? "Find top 5"
+                : "Pick a restaurant"}
           </Button>
 
           {error && (
@@ -257,47 +282,75 @@ export function Picker() {
         </p>
       )}
 
-      {result && (
-        <Card>
+      {results.map((r, i) => (
+        <Card key={r.id} className="overflow-hidden pt-0">
+          {r.photoName ? (
+            <figure className="relative">
+              {/* Served via /api/photo so the API key stays server-side. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/photo?name=${encodeURIComponent(r.photoName)}`}
+                alt={r.name}
+                loading="lazy"
+                className="h-56 w-full object-cover"
+              />
+              {r.photoAttribution && (
+                <figcaption className="absolute right-0 bottom-0 rounded-tl bg-black/60 px-2 py-0.5 text-[10px] text-white">
+                  Photo: {r.photoAttribution}
+                </figcaption>
+              )}
+            </figure>
+          ) : (
+            <div className="flex h-24 items-center justify-center bg-muted text-sm text-muted-foreground">
+              No photo available
+            </div>
+          )}
           <CardHeader>
-            <CardTitle className="text-2xl">{result.name}</CardTitle>
+            <CardTitle className="text-2xl">
+              {mode === "top5" && results.length > 1 ? `${i + 1}. ` : ""}
+              {r.name}
+            </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <div className="flex flex-wrap gap-2">
-              {result.type && <Badge variant="secondary">{result.type}</Badge>}
-              {result.priceLevel && (
-                <Badge variant="secondary">{PRICE_SYMBOL[result.priceLevel]}</Badge>
-              )}
-              {result.rating && (
-                <Badge variant="secondary">
-                  ★ {result.rating.toFixed(1)}
-                  {result.ratingCount ? ` (${result.ratingCount})` : ""}
+            <div className="flex flex-wrap items-center gap-2">
+              {r.rating ? (
+                <Badge>
+                  ★ {r.rating.toFixed(1)}
+                  {r.ratingCount ? ` (${r.ratingCount.toLocaleString()} reviews)` : ""}
                 </Badge>
+              ) : (
+                <Badge variant="outline">No ratings yet</Badge>
               )}
-              <Badge variant="outline">{formatDistance(result.distanceMeters)} away</Badge>
+              {r.type && <Badge variant="secondary">{r.type}</Badge>}
+              {r.priceLevel && (
+                <Badge variant="secondary">{PRICE_SYMBOL[r.priceLevel]}</Badge>
+              )}
+              <Badge variant="outline">{formatDistance(r.distanceMeters)} away</Badge>
             </div>
-            <p className="text-sm text-muted-foreground">{result.address}</p>
+            <p className="text-sm text-muted-foreground">{r.address}</p>
             <div className="flex flex-wrap gap-2">
-              {result.mapsUrl && (
-                <Button render={<a href={result.mapsUrl} target="_blank" rel="noreferrer" />}>
-                  Open in Maps
+              {r.mapsUrl && (
+                <Button render={<a href={r.mapsUrl} target="_blank" rel="noreferrer" />}>
+                  Open in Google Maps
                 </Button>
               )}
-              {result.websiteUrl && (
+              {r.websiteUrl && (
                 <Button
                   variant="outline"
-                  render={<a href={result.websiteUrl} target="_blank" rel="noreferrer" />}
+                  render={<a href={r.websiteUrl} target="_blank" rel="noreferrer" />}
                 >
                   Website
                 </Button>
               )}
-              <Button variant="outline" onClick={() => pick(seen)} disabled={loading}>
-                {loading ? "Picking…" : "Pick again"}
-              </Button>
+              {mode === "one" && results.length === 1 && (
+                <Button variant="outline" onClick={() => pick(seen)} disabled={loading}>
+                  {loading ? "Picking…" : "Pick again"}
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
-      )}
+      ))}
     </div>
   );
 }
