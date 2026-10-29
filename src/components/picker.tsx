@@ -238,8 +238,12 @@ export function Picker() {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-12 pb-16">
       <header className="flex flex-col items-center gap-3 text-center">
-        <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-orange-400 text-3xl shadow-lg shadow-primary/30">
-          🍽️
+        <span
+          role="img"
+          aria-label="upick logo"
+          className="flex size-20 items-center justify-center rounded-3xl bg-gradient-to-br from-primary to-rose-500 text-5xl shadow-lg shadow-primary/30"
+        >
+          🫵
         </span>
         <h1 className="bg-gradient-to-r from-primary to-rose-500 bg-clip-text text-5xl font-extrabold tracking-tight text-transparent">
           upick
