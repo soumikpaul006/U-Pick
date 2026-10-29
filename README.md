@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# U-Pick
 
-## Getting Started
+Can't decide where to eat? U-Pick picks a random restaurant near you, filtered by cuisine, dietary preference, price and distance.
 
-First, run the development server:
+Built with Next.js (App Router), TypeScript, Tailwind CSS, shadcn/ui and the Google Places API (New).
+
+## Getting started
 
 ```bash
+npm install
+cp .env.example .env.local   # then add your Google API key
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Google API key
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create a key in the [Google Cloud Console](https://console.cloud.google.com) with billing enabled, and enable:
 
-## Learn More
+- **Places API (New)**
+- **Geocoding API**
 
-To learn more about Next.js, take a look at the following resources:
+Set it in `.env.local`:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+GOOGLE_PLACES_API_KEY=your-key-here
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The key is only used server-side (in `/api/pick`). Never prefix it with `NEXT_PUBLIC_`, and restrict it to the two APIs above.
 
-## Deploy on Vercel
+## How it works
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. The browser sends your location (geolocation or a typed address) and filters to `POST /api/pick`.
+2. The server searches Google Places, re-filters by real distance, drops places you've already seen, and picks one at random, weighted toward higher ratings.
+3. "Pick again" excludes everything already shown.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Dietary matching is keyword-based (Places has no structured diet filter), so check the menu.
+
+## Scripts
+
+- `npm run dev`: start the dev server
+- `npm run build`: production build
+- `npm run lint`: lint
