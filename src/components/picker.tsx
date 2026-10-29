@@ -1,11 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import { useRef, useState } from "react";
+import {
+  Dices,
+  LoaderCircle,
+  LocateFixed,
+  MapPin,
+  Trophy,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  RestaurantCard,
+  RestaurantCardSkeleton,
+} from "@/components/restaurant-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -14,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
 import {
   CUISINES,
   DIETS,
@@ -34,29 +44,110 @@ const RADII = [
   { value: "20", label: "20 miles" },
 ];
 
-type Mode = "one" | "top5";
+const RADIUS_ITEMS = RADII.map((o) => ({ value: o.value, label: `Within ${o.label}` }));
 
-const PRICE_OPTIONS = [
-  { value: "any", label: "Any price" },
-  { value: "low", label: "$ Low" },
-  { value: "medium", label: "$$ Medium" },
-  { value: "high", label: "$$$ High" },
+const PRICE_OPTIONS: { value: Price | "any"; label: string }[] = [
+  { value: "any", label: "Any" },
+  { value: "low", label: "$" },
+  { value: "medium", label: "$$" },
+  { value: "high", label: "$$$" },
 ];
 
-const PRICE_SYMBOL: Record<string, string> = {
-  free: "Free",
-  low: "$",
-  medium: "$$",
-  high: "$$$",
-  "very-high": "$$$$",
+const CUISINE_EMOJI: Record<Cuisine, string> = {
+  Asian: "🥢",
+  Chinese: "🥡",
+  Japanese: "🍣",
+  Korean: "🍲",
+  Thai: "🍜",
+  Indian: "🍛",
+  Italian: "🍝",
+  Mexican: "🌮",
+  American: "🍔",
+  Mediterranean: "🥙",
+  "Middle Eastern": "🧆",
+  French: "🥐",
 };
 
-function formatDistance(m: number) {
-  const miles = m / METERS_PER_MILE;
-  return miles < 0.1 ? "<0.1 mi" : `${miles.toFixed(1)} mi`;
+const DIET_EMOJI: Record<Diet, string> = {
+  Vegan: "🌱",
+  Vegetarian: "🥗",
+  Keto: "🥑",
+  "Gluten-free": "🌾",
+  Halal: "🍖",
+};
+
+type Mode = "one" | "top5";
+type Coords = { lat: number; lng: number };
+
+/** Selected chips need to be unmistakable; the stock toggle only tints them. */
+const chip =
+  "rounded-full! px-3.5 aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:shadow-sm data-pressed:border-primary data-pressed:bg-primary data-pressed:text-primary-foreground";
+
+function Section({
+  step,
+  title,
+  hint,
+  children,
+}: {
+  step: number;
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-baseline gap-2.5">
+        <span className="flex size-6 shrink-0 items-center justify-center self-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+          {step}
+        </span>
+        <h2 className="text-base font-semibold">{title}</h2>
+        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+      </div>
+      {children}
+    </section>
+  );
 }
 
-type Coords = { lat: number; lng: number };
+function ModeCard({
+  active,
+  onClick,
+  icon: Icon,
+  title,
+  subtitle,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: LucideIcon;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-3 rounded-xl border p-3.5 text-left transition-all outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+        active
+          ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary"
+          : "bg-card hover:border-primary/40 hover:bg-muted/60",
+      )}
+    >
+      <span
+        className={cn(
+          "flex size-10 shrink-0 items-center justify-center rounded-lg",
+          active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+        )}
+      >
+        <Icon className="size-5" />
+      </span>
+      <span className="flex flex-col">
+        <span className="font-semibold">{title}</span>
+        <span className="text-xs text-muted-foreground">{subtitle}</span>
+      </span>
+    </button>
+  );
+}
 
 export function Picker() {
   const [cuisines, setCuisines] = useState<Cuisine[]>([]);
@@ -72,8 +163,10 @@ export function Picker() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<Restaurant[]>([]);
+  const [resultsMode, setResultsMode] = useState<Mode>("one");
   const [empty, setEmpty] = useState(false);
   const [seen, setSeen] = useState<string[]>([]);
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   function useMyLocation() {
     if (!navigator.geolocation) {
@@ -105,6 +198,10 @@ export function Picker() {
     setLoading(true);
     setError(null);
     setEmpty(false);
+    setResults([]);
+    requestAnimationFrame(() =>
+      resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
     try {
       const res = await fetch("/api/pick", {
         method: "POST",
@@ -123,11 +220,11 @@ export function Picker() {
       const data: PickResponse & { error?: string } = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Request failed");
       if (!data.restaurants.length) {
-        setResults([]);
         setEmpty(true);
         return;
       }
       setResults(data.restaurants);
+      setResultsMode(mode);
       setSeen([...exclude, ...data.restaurants.map((r) => r.id)]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -136,221 +233,238 @@ export function Picker() {
     }
   }
 
+  const ctaLabel = mode === "top5" ? "Find my top 5" : "Pick a restaurant for me";
+
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-10">
-      <header className="text-center">
-        <h1 className="text-4xl font-bold tracking-tight">upick</h1>
-        <p className="mt-2 text-muted-foreground">
-          Can&apos;t decide where to eat? Let us pick for you.
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-12 pb-16">
+      <header className="flex flex-col items-center gap-3 text-center">
+        <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-orange-400 text-3xl shadow-lg shadow-primary/30">
+          🍽️
+        </span>
+        <h1 className="bg-gradient-to-r from-primary to-rose-500 bg-clip-text text-5xl font-extrabold tracking-tight text-transparent">
+          upick
+        </h1>
+        <p className="max-w-md text-lg text-muted-foreground">
+          Can&apos;t decide where to eat? Tell us your mood and we&apos;ll choose for you.
         </p>
       </header>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>What are you in the mood for?</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-5">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="address">Location</Label>
-            <div className="flex gap-2">
+      <div className="flex flex-col gap-7 rounded-3xl border bg-card/90 p-6 shadow-xl shadow-primary/5 ring-1 ring-foreground/5 backdrop-blur sm:p-8">
+        <Section step={1} title="Where are you?">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="relative flex-1">
+              <MapPin className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="address"
+                aria-label="Address or zip code"
+                className="h-10 pl-9"
                 placeholder={coords ? "Using your current location" : "Address or zip code"}
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
               />
-              <Button variant="outline" onClick={useMyLocation} disabled={locating}>
-                {locating ? "Locating…" : coords ? "Located ✓" : "Use my location"}
-              </Button>
             </div>
+            <Button
+              variant={coords && !address ? "secondary" : "outline"}
+              size="lg"
+              onClick={useMyLocation}
+              disabled={locating}
+            >
+              {locating ? (
+                <LoaderCircle className="animate-spin" data-icon="inline-start" />
+              ) : (
+                <LocateFixed data-icon="inline-start" />
+              )}
+              {locating ? "Locating…" : coords && !address ? "Located ✓" : "Use my location"}
+            </Button>
           </div>
+        </Section>
 
-          <div className="flex flex-col gap-2">
-            <Label>Cuisine (leave empty for anything)</Label>
+        <Section step={2} title="Craving" hint="optional · pick any">
+          <ToggleGroup
+            multiple
+            variant="outline"
+            className="flex-wrap"
+            value={cuisines}
+            onValueChange={(v) => setCuisines(v as Cuisine[])}
+          >
+            {CUISINES.map((c) => (
+              <ToggleGroupItem key={c} value={c} className={chip}>
+                <span aria-hidden>{CUISINE_EMOJI[c]}</span>
+                {c}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </Section>
+
+        <Section step={3} title="Dietary needs" hint="keyword-based, so double-check the menu">
+          <ToggleGroup
+            multiple
+            variant="outline"
+            className="flex-wrap"
+            value={diets}
+            onValueChange={(v) => setDiets(v as Diet[])}
+          >
+            {DIETS.map((d) => (
+              <ToggleGroupItem key={d} value={d} className={chip}>
+                <span aria-hidden>{DIET_EMOJI[d]}</span>
+                {d}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </Section>
+
+        <div className="grid gap-7 sm:grid-cols-2">
+          <Section step={4} title="Budget">
             <ToggleGroup
-              multiple
               variant="outline"
               className="flex-wrap"
-              value={cuisines}
-              onValueChange={(v) => setCuisines(v as Cuisine[])}
+              value={[price]}
+              onValueChange={(v) => v[0] && setPrice(v[0] as Price | "any")}
             >
-              {CUISINES.map((c) => (
-                <ToggleGroupItem key={c} value={c}>
-                  {c}
+              {PRICE_OPTIONS.map((o) => (
+                <ToggleGroupItem key={o.value} value={o.value} className={chip}>
+                  {o.label}
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
-          </div>
+          </Section>
 
-          <div className="flex flex-col gap-2">
-            <Label>Dietary preference</Label>
-            <ToggleGroup
-              multiple
-              variant="outline"
-              className="flex-wrap"
-              value={diets}
-              onValueChange={(v) => setDiets(v as Diet[])}
+          <Section step={5} title="How far?">
+            <Select
+              items={RADIUS_ITEMS}
+              value={radius}
+              onValueChange={(v) => v && setRadius(v)}
             >
-              {DIETS.map((d) => (
-                <ToggleGroupItem key={d} value={d}>
-                  {d}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-            <p className="text-xs text-muted-foreground">
-              Dietary matching is keyword-based, so double-check the menu.
-            </p>
-          </div>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RADIUS_ITEMS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Section>
+        </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <Label>Price</Label>
-              <Select value={price} onValueChange={(v) => setPrice(v as Price | "any")}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRICE_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label>Distance</Label>
-              <Select value={radius} onValueChange={(v) => v && setRadius(v)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {RADII.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+        <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium select-none">
+          <input
+            type="checkbox"
+            className="size-4 accent-primary"
+            checked={openNow}
+            onChange={(e) => setOpenNow(e.target.checked)}
+          />
+          Only show places that are open now
+        </label>
 
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={openNow}
-              onChange={(e) => setOpenNow(e.target.checked)}
+        <Section step={6} title="How many options?">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ModeCard
+              active={mode === "one"}
+              onClick={() => setMode("one")}
+              icon={Dices}
+              title="Surprise me"
+              subtitle="One random pick"
             />
-            Open now
-          </label>
-
-          <div className="flex flex-col gap-2">
-            <Label>How many?</Label>
-            <ToggleGroup
-              variant="outline"
-              value={[mode]}
-              onValueChange={(v) => v[0] && setMode(v[0] as Mode)}
-            >
-              <ToggleGroupItem value="one">Surprise me (1)</ToggleGroupItem>
-              <ToggleGroupItem value="top5">Top 5</ToggleGroupItem>
-            </ToggleGroup>
+            <ModeCard
+              active={mode === "top5"}
+              onClick={() => setMode("top5")}
+              icon={Trophy}
+              title="Top 5"
+              subtitle="The best-rated matches"
+            />
           </div>
+        </Section>
 
-          <Button size="lg" onClick={() => pick([])} disabled={loading}>
-            {loading && !results.length
-              ? mode === "top5"
-                ? "Finding…"
-                : "Picking…"
-              : mode === "top5"
-                ? "Find top 5"
-                : "Pick a restaurant"}
+        <div className="flex flex-col gap-3">
+          <Button
+            size="lg"
+            className="h-12 w-full bg-gradient-to-r from-primary to-rose-500 text-base font-semibold text-white shadow-lg shadow-primary/30 transition-all hover:brightness-110 active:scale-[0.99]"
+            onClick={() => pick([])}
+            disabled={loading}
+          >
+            {loading ? (
+              <LoaderCircle className="animate-spin" data-icon="inline-start" />
+            ) : mode === "top5" ? (
+              <Trophy data-icon="inline-start" />
+            ) : (
+              <Dices data-icon="inline-start" />
+            )}
+            {loading ? "Finding your table…" : ctaLabel}
           </Button>
 
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
               {error}
             </p>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      {empty && (
-        <p className="text-center text-muted-foreground">
-          {seen.length
-            ? "That's every match. Start over or loosen your filters."
-            : "No restaurants matched. Try widening the distance or removing a filter."}
-        </p>
-      )}
+      <div ref={resultsRef} className="flex scroll-mt-6 flex-col gap-4">
+        {loading && (
+          <>
+            <RestaurantCardSkeleton />
+            {mode === "top5" && (
+              <>
+                <RestaurantCardSkeleton />
+                <RestaurantCardSkeleton />
+              </>
+            )}
+          </>
+        )}
 
-      {results.map((r, i) => (
-        <Card key={r.id} className="overflow-hidden pt-0">
-          {r.photoName ? (
-            <figure className="relative">
-              {/* Served via /api/photo so the API key stays server-side. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/photo?name=${encodeURIComponent(r.photoName)}`}
-                alt={r.name}
-                loading="lazy"
-                className="h-56 w-full object-cover"
+        {empty && !loading && (
+          <div className="rounded-2xl border border-dashed bg-card/70 p-8 text-center">
+            <p className="text-3xl">🤷</p>
+            <p className="mt-2 font-medium">
+              {seen.length ? "That's every match." : "No restaurants matched."}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {seen.length
+                ? "Start over or loosen your filters."
+                : "Try a wider distance, or remove a filter."}
+            </p>
+          </div>
+        )}
+
+        {!loading && results.length > 0 && (
+          <>
+            <h2 className="text-lg font-semibold">
+              {resultsMode === "top5" ? "Your top picks" : "Tonight, you're eating at…"}
+            </h2>
+            {results.map((r, i) => (
+              <RestaurantCard
+                key={r.id}
+                restaurant={r}
+                index={i}
+                rank={resultsMode === "top5" ? i + 1 : undefined}
               />
-              {r.photoAttribution && (
-                <figcaption className="absolute right-0 bottom-0 rounded-tl bg-black/60 px-2 py-0.5 text-[10px] text-white">
-                  Photo: {r.photoAttribution}
-                </figcaption>
-              )}
-            </figure>
-          ) : (
-            <div className="flex h-24 items-center justify-center bg-muted text-sm text-muted-foreground">
-              No photo available
-            </div>
-          )}
-          <CardHeader>
-            <CardTitle className="text-2xl">
-              {mode === "top5" && results.length > 1 ? `${i + 1}. ` : ""}
-              {r.name}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center gap-2">
-              {r.rating ? (
-                <Badge>
-                  ★ {r.rating.toFixed(1)}
-                  {r.ratingCount ? ` (${r.ratingCount.toLocaleString()} reviews)` : ""}
-                </Badge>
-              ) : (
-                <Badge variant="outline">No ratings yet</Badge>
-              )}
-              {r.type && <Badge variant="secondary">{r.type}</Badge>}
-              {r.priceLevel && (
-                <Badge variant="secondary">{PRICE_SYMBOL[r.priceLevel]}</Badge>
-              )}
-              <Badge variant="outline">{formatDistance(r.distanceMeters)} away</Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">{r.address}</p>
-            <div className="flex flex-wrap gap-2">
-              {r.mapsUrl && (
-                <Button render={<a href={r.mapsUrl} target="_blank" rel="noreferrer" />}>
-                  Open in Google Maps
-                </Button>
-              )}
-              {r.websiteUrl && (
-                <Button
-                  variant="outline"
-                  render={<a href={r.websiteUrl} target="_blank" rel="noreferrer" />}
-                >
-                  Website
-                </Button>
-              )}
-              {mode === "one" && results.length === 1 && (
-                <Button variant="outline" onClick={() => pick(seen)} disabled={loading}>
-                  {loading ? "Picking…" : "Pick again"}
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+            ))}
+            {resultsMode === "one" && results.length === 1 && (
+              <Button
+                variant="outline"
+                size="lg"
+                className="self-center"
+                onClick={() => pick(seen)}
+                disabled={loading}
+              >
+                <Dices data-icon="inline-start" />
+                Not feeling it? Pick again
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+
+      <footer className="text-center text-xs text-muted-foreground">
+        Restaurant data &amp; photos from Google
+      </footer>
     </div>
   );
 }
